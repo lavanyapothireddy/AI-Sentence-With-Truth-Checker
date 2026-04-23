@@ -9,13 +9,6 @@ const verdictConfig = {
   UNCERTAIN: { label: 'Uncertain', icon: '?', cls: 'verdict-uncertain' },
 }
 
-const examples = [
-  'The Great Wall of China is visible from space.',
-  'Water boils at 100°C at sea level.',
-  'Humans only use 10% of their brain.',
-  'Lightning never strikes the same place twice.',
-]
-
 function VerdictBadge({ verdict }) {
   const cfg = verdictConfig[verdict] || verdictConfig.UNCERTAIN
   return (
@@ -87,11 +80,6 @@ export default function App() {
     }
   }
 
-  const handleExample = (ex) => {
-    setSentence(ex)
-    handleCheck(ex)
-  }
-
   return (
     <div className="page">
       <div className="bg-glow glow-1" />
@@ -120,7 +108,7 @@ export default function App() {
             className="input-area"
             value={sentence}
             onChange={e => setSentence(e.target.value)}
-            placeholder="e.g. The Great Wall of China is visible from space."
+            placeholder="Paste your text here..."
             rows={3}
             onKeyDown={e => e.key === 'Enter' && e.ctrlKey && handleCheck()}
           />
@@ -135,17 +123,6 @@ export default function App() {
                 ? <><span className="spinner" /> Analyzing...</>
                 : <>Check Truth</>}
             </button>
-          </div>
-        </div>
-
-        <div>
-          <p className="section-label">Try an example</p>
-          <div className="examples-list">
-            {examples.map((ex, i) => (
-              <button key={i} className="example-chip" onClick={() => handleExample(ex)}>
-                {ex.length > 42 ? ex.slice(0, 42) + '…' : ex}
-              </button>
-            ))}
           </div>
         </div>
 
