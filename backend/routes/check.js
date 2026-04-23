@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const Anthropic = require('@anthropic-ai/sdk');
+const Groq = require('groq-sdk');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 router.post('/', async (req, res) => {
   const { sentence } = req.body;
@@ -12,35 +12,31 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-opus-4-5',
-      max_tokens: 1024,
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
       messages: [
         {
+          role: 'system',
+          content: `You are a fact-checking AI. Always respond ONLY with valid JSON in this exact format with no extra text or markdown:
+{"verdict":"TRUE","confidence":95,"explanation":"Your explanation in 2-3 sentences.","sources_hint":"Types of sources to verify this."}`
+        },
+        {
           role: 'user',
-          content: `You are a fact-checking AI. Analyze the following sentence and determine if it is TRUE, FALSE, or UNCERTAIN.
-
-Respond ONLY in this exact JSON format (no extra text):
-{
-  "verdict": "TRUE" | "FALSE" | "UNCERTAIN",
-  "confidence": <number 0-100>,
-  "explanation": "<brief explanation in 2-3 sentences>",
-  "sources_hint": "<mention what type of sources would confirm this>"
-}
-
-Sentence to check: "${sentence}"`
+          content: `Fact-check this sentence: "${sentence}"`
         }
-      ]
+      ],
+      temperature: 0.3,
+      max_tokens: 512,
     });
 
-    const raw = message.content[0].text;
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Invalid AI response format');
+    const text = completion.choices[0]?.message?.content || '';
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid AI response format');
 
-    const result = JSON.parse(jsonMatch[0]);
-    res.json(result);
+    const data = JSON.parse(match[0]);
+    res.json(data);
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error('Groq Error:', err.message);
     res.status(500).json({ error: 'Failed to analyze sentence' });
   }
 });
