@@ -12,7 +12,7 @@ app.use(express.json());
 app.use('/api/check', checkRoute);
 
 app.get('/', (req, res) => {
-  res.json({ status: 'AI Truth Checker API running' });
+  res.json({ status: 'AI Truth Checker API running - Powered by Gemini' });
 });
 
 app.listen(PORT, () => {
