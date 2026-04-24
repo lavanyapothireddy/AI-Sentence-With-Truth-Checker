@@ -1,12 +1,18 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const MAX_WORDS = 100
+const MAX_FILE_SIZE_MB = 1
 
 const verdictConfig = {
   TRUE:      { label: 'True',      icon: '✓', cls: 'verdict-true' },
   FALSE:     { label: 'False',     icon: '✗', cls: 'verdict-false' },
   UNCERTAIN: { label: 'Uncertain', icon: '?', cls: 'verdict-uncertain' },
+}
+
+function countWords(text) {
+  return text.trim() === '' ? 0 : text.trim().split(/\s+/).length
 }
 
 function VerdictBadge({ verdict }) {
@@ -55,10 +61,77 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [checked, setChecked] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [fileError, setFileError] = useState('')
+  const fileRef = useRef()
+
+  const wordCount = countWords(sentence)
+  const wordLimitReached = wordCount > MAX_WORDS
+
+  const handleTextChange = (e) => {
+    const val = e.target.value
+    const words = countWords(val)
+    if (words > MAX_WORDS) {
+      const trimmed = val.trim().split(/\s+/).slice(0, MAX_WORDS).join(' ')
+      setSentence(trimmed)
+    } else {
+      setSentence(val)
+    }
+    setResult(null)
+    setError('')
+  }
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0]
+    setFileError('')
+    setFileName('')
+    if (!file) return
+
+    const allowedTypes = ['text/plain', 'text/csv', 'application/json']
+    if (!allowedTypes.includes(file.type) && !file.name.endsWith('.txt') && !file.name.endsWith('.csv')) {
+      setFileError('Only .txt and .csv files are supported.')
+      fileRef.current.value = ''
+      return
+    }
+
+    const sizeMB = file.size / (1024 * 1024)
+    if (sizeMB > MAX_FILE_SIZE_MB) {
+      setFileError(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
+      fileRef.current.value = ''
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target.result
+      const words = text.trim().split(/\s+/)
+      const limited = words.slice(0, MAX_WORDS).join(' ')
+      setSentence(limited)
+      setFileName(file.name)
+      setResult(null)
+      setError('')
+      if (words.length > MAX_WORDS) {
+        setFileError(`File has ${words.length} words. Only first ${MAX_WORDS} words loaded.`)
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files[0]
+    if (file) {
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      fileRef.current.files = dt.files
+      handleFileUpload({ target: { files: [file] } })
+    }
+  }
 
   const handleCheck = async (text) => {
     const target = text || sentence
     if (!target.trim()) return
+    if (countWords(target) > MAX_WORDS) return
     setLoading(true)
     setResult(null)
     setError('')
@@ -78,6 +151,15 @@ export default function App() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleClear = () => {
+    setSentence('')
+    setResult(null)
+    setError('')
+    setFileName('')
+    setFileError('')
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   return (
@@ -103,21 +185,58 @@ export default function App() {
         </header>
 
         <div className="input-card">
-          <label className="input-label">Enter a sentence to fact-check</label>
+          <div className="input-card-header">
+            <label className="input-label">Enter a sentence to fact-check</label>
+            <span className={`word-count ${wordCount >= MAX_WORDS ? 'word-limit' : ''}`}>
+              {wordCount} / {MAX_WORDS} words
+            </span>
+          </div>
+
           <textarea
             className="input-area"
             value={sentence}
-            onChange={e => setSentence(e.target.value)}
-            placeholder="Paste your text here..."
-            rows={3}
+            onChange={handleTextChange}
+            placeholder="Type or paste your sentence here, or upload a file below..."
+            rows={4}
             onKeyDown={e => e.key === 'Enter' && e.ctrlKey && handleCheck()}
           />
+
+          <div
+            className="upload-zone"
+            onDrop={handleDrop}
+            onDragOver={e => e.preventDefault()}
+            onClick={() => fileRef.current.click()}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".txt,.csv"
+              style={{ display: 'none' }}
+              onChange={handleFileUpload}
+            />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            {fileName
+              ? <span className="upload-filename">{fileName}</span>
+              : <span>Click or drag a <strong>.txt</strong> or <strong>.csv</strong> file · Max <strong>1MB</strong></span>
+            }
+          </div>
+
+          {fileError && (
+            <p className="file-error">⚠ {fileError}</p>
+          )}
+
           <div className="input-footer">
-            <span className="hint">Ctrl + Enter to submit</span>
+            <button className="btn-clear" onClick={handleClear} disabled={!sentence && !fileName}>
+              Clear
+            </button>
             <button
               className="btn-primary"
               onClick={() => handleCheck()}
-              disabled={loading || !sentence.trim()}
+              disabled={loading || !sentence.trim() || wordLimitReached}
             >
               {loading
                 ? <><span className="spinner" /> Analyzing...</>
@@ -165,7 +284,7 @@ export default function App() {
             </div>
 
             <div className="result-footer">
-              <button className="btn-secondary" onClick={() => { setResult(null); setSentence('') }}>
+              <button className="btn-secondary" onClick={handleClear}>
                 ← Check another sentence
               </button>
             </div>
