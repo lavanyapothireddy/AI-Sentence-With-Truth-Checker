@@ -3,7 +3,7 @@ import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const MAX_WORDS = 100
-const MAX_FILE_SIZE_MB = 1
+const MAX_FILE_SIZE_MB = 5
 
 const verdictConfig = {
   TRUE:      { label: 'True',      icon: '✓', cls: 'verdict-true' },
@@ -13,6 +13,20 @@ const verdictConfig = {
 
 function countWords(text) {
   return text.trim() === '' ? 0 : text.trim().split(/\s+/).length
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+function getFileType(name) {
+  const ext = name.split('.').pop().toLowerCase()
+  if (ext === 'pdf') return { label: 'PDF', color: '#f87171', cls: 'fi-pdf' }
+  if (ext === 'ppt' || ext === 'pptx') return { label: 'PPT', color: '#fbbf24', cls: 'fi-ppt' }
+  if (ext === 'doc' || ext === 'docx') return { label: 'DOC', color: '#60a5fa', cls: 'fi-doc' }
+  return { label: 'TXT', color: '#34d399', cls: 'fi-txt' }
 }
 
 function VerdictBadge({ verdict }) {
@@ -61,22 +75,15 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [checked, setChecked] = useState('')
-  const [fileName, setFileName] = useState('')
+  const [fileInfo, setFileInfo] = useState(null)
   const [fileError, setFileError] = useState('')
   const fileRef = useRef()
 
   const wordCount = countWords(sentence)
-  const wordLimitReached = wordCount > MAX_WORDS
+  const overLimit = wordCount > MAX_WORDS
 
   const handleTextChange = (e) => {
-    const val = e.target.value
-    const words = countWords(val)
-    if (words > MAX_WORDS) {
-      const trimmed = val.trim().split(/\s+/).slice(0, MAX_WORDS).join(' ')
-      setSentence(trimmed)
-    } else {
-      setSentence(val)
-    }
+    setSentence(e.target.value)
     setResult(null)
     setError('')
   }
@@ -84,15 +91,7 @@ export default function App() {
   const handleFileUpload = (e) => {
     const file = e.target.files[0]
     setFileError('')
-    setFileName('')
     if (!file) return
-
-    const allowedTypes = ['text/plain', 'text/csv', 'application/json']
-    if (!allowedTypes.includes(file.type) && !file.name.endsWith('.txt') && !file.name.endsWith('.csv')) {
-      setFileError('Only .txt and .csv files are supported.')
-      fileRef.current.value = ''
-      return
-    }
 
     const sizeMB = file.size / (1024 * 1024)
     if (sizeMB > MAX_FILE_SIZE_MB) {
@@ -101,37 +100,49 @@ export default function App() {
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target.result
-      const words = text.trim().split(/\s+/)
-      const limited = words.slice(0, MAX_WORDS).join(' ')
-      setSentence(limited)
-      setFileName(file.name)
-      setResult(null)
-      setError('')
-      if (words.length > MAX_WORDS) {
-        setFileError(`File has ${words.length} words. Only first ${MAX_WORDS} words loaded.`)
+    const ft = getFileType(file.name)
+    setFileInfo({
+      name: file.name,
+      size: formatSize(file.size),
+      label: ft.label,
+      color: ft.color,
+      cls: ft.cls,
+    })
+
+    if (file.name.endsWith('.txt')) {
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        const words = ev.target.result.trim().split(/\s+/)
+        const limited = words.slice(0, MAX_WORDS).join(' ')
+        setSentence(limited)
+        if (words.length > MAX_WORDS) {
+          setFileError(`File has ${words.length} words. Only first ${MAX_WORDS} words loaded.`)
+        }
       }
+      reader.readAsText(file)
     }
-    reader.readAsText(file)
+
+    setResult(null)
+    setError('')
   }
 
-  const handleDrop = (e) => {
-    e.preventDefault()
-    const file = e.dataTransfer.files[0]
-    if (file) {
-      const dt = new DataTransfer()
-      dt.items.add(file)
-      fileRef.current.files = dt.files
-      handleFileUpload({ target: { files: [file] } })
-    }
+  const clearFile = () => {
+    setFileInfo(null)
+    setFileError('')
+    if (fileRef.current) fileRef.current.value = ''
   }
 
-  const handleCheck = async (text) => {
-    const target = text || sentence
-    if (!target.trim()) return
-    if (countWords(target) > MAX_WORDS) return
+  const handleClear = () => {
+    setSentence('')
+    setResult(null)
+    setError('')
+    setFileError('')
+    clearFile()
+  }
+
+  const handleCheck = async () => {
+    const target = sentence.trim()
+    if (!target || overLimit) return
     setLoading(true)
     setResult(null)
     setError('')
@@ -151,15 +162,6 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleClear = () => {
-    setSentence('')
-    setResult(null)
-    setError('')
-    setFileName('')
-    setFileError('')
-    if (fileRef.current) fileRef.current.value = ''
   }
 
   return (
@@ -187,56 +189,78 @@ export default function App() {
         <div className="input-card">
           <div className="input-card-header">
             <label className="input-label">Enter a sentence to fact-check</label>
-            <span className={`word-count ${wordCount >= MAX_WORDS ? 'word-limit' : ''}`}>
+            <span className={`word-count ${overLimit ? 'over' : ''}`}>
               {wordCount} / {MAX_WORDS} words
             </span>
           </div>
 
-          <textarea
-            className="input-area"
-            value={sentence}
-            onChange={handleTextChange}
-            placeholder="Type or paste your sentence here, or upload a file below..."
-            rows={4}
-            onKeyDown={e => e.key === 'Enter' && e.ctrlKey && handleCheck()}
-          />
+          <div className="textarea-wrap">
+            {fileInfo && (
+              <div className="file-info-bar">
+                <div className={`file-icon-wrap ${fileInfo.cls}`}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke={fileInfo.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+                <div className="file-meta">
+                  <div className="file-name">{fileInfo.name}</div>
+                  <div className="file-size">{fileInfo.size} · {fileInfo.label}</div>
+                </div>
+                <button className="file-remove" onClick={clearFile}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            )}
 
-          <div
-            className="upload-zone"
-            onDrop={handleDrop}
-            onDragOver={e => e.preventDefault()}
-            onClick={() => fileRef.current.click()}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".txt,.csv"
-              style={{ display: 'none' }}
-              onChange={handleFileUpload}
+            <textarea
+              className="input-area"
+              value={sentence}
+              onChange={handleTextChange}
+              placeholder={fileInfo ? 'File uploaded. Type your sentence or question here...' : 'Type or paste your sentence here...'}
+              onKeyDown={e => e.key === 'Enter' && e.ctrlKey && handleCheck()}
             />
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            {fileName
-              ? <span className="upload-filename">{fileName}</span>
-              : <span>Click or drag a <strong>.txt</strong> or <strong>.csv</strong> file · Max <strong>1MB</strong></span>
-            }
+
+            <div className="textarea-bottom">
+              <button className="upload-btn" onClick={() => fileRef.current.click()}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Upload File
+              </button>
+              <span className="upload-hint">PDF, PPT, DOCX, TXT · Max 5MB</span>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.ppt,.pptx,.doc,.docx,.txt"
+                style={{ display: 'none' }}
+                onChange={handleFileUpload}
+              />
+            </div>
           </div>
 
-          {fileError && (
-            <p className="file-error">⚠ {fileError}</p>
-          )}
+          {fileError && <p className="file-error">⚠ {fileError}</p>}
 
-          <div className="input-footer">
-            <button className="btn-clear" onClick={handleClear} disabled={!sentence && !fileName}>
+          <div className="action-row">
+            <button
+              className="btn-clear"
+              onClick={handleClear}
+              disabled={!sentence && !fileInfo}
+            >
               Clear
             </button>
             <button
               className="btn-primary"
-              onClick={() => handleCheck()}
-              disabled={loading || !sentence.trim() || wordLimitReached}
+              onClick={handleCheck}
+              disabled={loading || !sentence.trim() || overLimit}
             >
               {loading
                 ? <><span className="spinner" /> Analyzing...</>
